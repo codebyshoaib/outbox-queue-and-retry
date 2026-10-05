@@ -125,7 +125,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return self._json(int(arg), {"chaos": mode})
         if kind == "delay":
             time.sleep(int(arg) / 1000)
-        reply = self._forward(body)  # full upstream response read: the server has committed
+        try:
+            reply = self._forward(body)  # full upstream response read: the server has committed
+        except OSError as e:  # refused, reset, timeout: upstream is down, say so honestly
+            return self._json(502, {"error": "upstream unreachable: %s" % e})
         if kind == "drop_reply":
             self.close_connection = True
             return  # the lost ack
