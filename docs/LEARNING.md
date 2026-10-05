@@ -8,3 +8,4 @@ what made it pass (green), and the lesson.
 | 1a Server | [learning/01-server.md](learning/01-server.md) |
 | 1b Chaos proxy | [learning/01-chaos.md](learning/01-chaos.md) |
 | 1c Phone outbox core | [learning/01-core.md](learning/01-core.md) |
+| 2 Android app | [learning/02-android.md](learning/02-android.md) |

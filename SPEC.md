@@ -17,7 +17,7 @@ those builds on this and gets its own study.
 | `android/` | Kotlin, Room, WorkManager, Compose | What a real Rumi Android client would use |
 
 ```
-phone (android/)  --HTTP-->  chaos proxy :8081  --HTTP-->  Django :8080
+phone (android/)  --HTTP-->  chaos proxy :8091  --HTTP-->  Django :8080
                                  ^ POST /_chaos sets the next failure
 ```
 
@@ -95,7 +95,9 @@ Run on the phone against the proxy over Wi-Fi (not `adb reverse`: USB tunnels ig
 | T4 Permanent error | `status:400` × 1, send 1 | ⚠ failed, no further requests for it; tap retry → ✓ |
 | T5 Airplane mode | Airplane on, send 5, airplane off | 5 ✓, server has 5 rows, `server_seq` 1–5 in typed order |
 
-T1, T3, T4 are automated as on-device instrumented tests driving the proxy. T2 and T5 need a
+T1, T4 and T3a (proxy answers `status:503` × 3, then passes: all 3 delivered in order, gaps grew)
+are automated as on-device instrumented tests driving the proxy. T3 itself (really stopping
+Django), T2 and T5 need a
 human hand on the phone and are a checklist in `docs/MANUAL-TESTS.md`.
 
 ## How it is built
