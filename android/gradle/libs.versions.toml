@@ -1,0 +1,8 @@
+[versions]
+# Kotlin 2.2.x pairs with AGP 8.11 (Gradle 8.13+) for the later :app module.
+kotlin = "2.2.21"
+
+[libraries]
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
