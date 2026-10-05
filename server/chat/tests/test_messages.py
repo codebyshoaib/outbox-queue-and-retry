@@ -171,3 +171,33 @@ class S4ValidationTests(MessagesTestCase):
 
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(stored().get().body, body)
+
+
+class S6ListTests(MessagesTestCase):
+    def test_S6_lists_only_that_chat_in_server_seq_order(self):
+        chat = apps.get_model("chat", "Chat").objects.create(chat_id="chat-1", last_seq=2)
+        other = apps.get_model("chat", "Chat").objects.create(chat_id="chat-2", last_seq=1)
+        # Inserted out of seq order so the test fails if the list is ordered by insertion/pk.
+        second = stored().create(chat=chat, sender_device_id="b", client_msg_id=uuid.uuid4(), body="two", server_seq=2)
+        first = stored().create(chat=chat, sender_device_id="a", client_msg_id=uuid.uuid4(), body="one", server_seq=1)
+        stored().create(chat=other, sender_device_id="a", client_msg_id=uuid.uuid4(), body="elsewhere", server_seq=1)
+
+        resp = self.client.get("/messages", {"chat_id": "chat-1"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            [{k: m[k] for k in ("server_seq", "client_msg_id", "sender_device_id", "body")} for m in resp.json()],
+            [
+                {"server_seq": 1, "client_msg_id": str(first.client_msg_id), "sender_device_id": "a", "body": "one"},
+                {"server_seq": 2, "client_msg_id": str(second.client_msg_id), "sender_device_id": "b", "body": "two"},
+            ],
+        )
+
+    def test_S6_unknown_chat_lists_nothing(self):
+        resp = self.client.get("/messages", {"chat_id": "nobody"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), [])
+
+    def test_S6_missing_chat_id_is_rejected(self):
+        self.assertEqual(self.client.get("/messages").status_code, 400)
