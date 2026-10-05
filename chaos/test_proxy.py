@@ -1,6 +1,7 @@
 import http.client
 import json
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -22,7 +23,8 @@ class FakeUpstream:
                 with upstream.lock:
                     upstream.requests.append(
                         {"method": self.command, "path": self.path,
-                         "headers": dict(self.headers), "body": body})
+                         "headers": dict(self.headers), "body": body,
+                         "at": time.monotonic()})
                 reply = b'{"server_seq": 1}'
                 self.send_response(201)
                 self.send_header("Content-Type", "application/json")
@@ -196,6 +198,15 @@ class TestC3Modes(ChaosControlMixin, ProxyTestCase):
                 self.assertEqual(headers["Content-Type"], "application/json")
                 self.assertEqual(json.loads(body)["chaos"], "status:%d" % code)
         self.assertEqual(self.upstream.count, 0)
+
+    def test_C3_delay_waits_before_forwarding(self):
+        self.set_chaos({"mode": "delay:300", "count": 1})
+        sent = time.monotonic()
+        status, _, _ = self.request("POST", "/messages", body=MSG)
+        self.assertEqual(status, 201)
+        self.assertEqual(self.upstream.count, 1)
+        # Lower bound only, so a slow machine cannot make this flaky.
+        self.assertGreaterEqual(self.upstream.requests[0]["at"] - sent, 0.3)
 
 
 if __name__ == "__main__":
