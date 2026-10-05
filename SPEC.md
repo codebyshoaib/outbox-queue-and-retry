@@ -55,6 +55,8 @@ phone (android/)  --HTTP-->  chaos proxy :8091  --HTTP-->  Django :8080
   - `status:<code>`: replies `<code>` without forwarding.
   - `delay:<ms>`: forwards after waiting.
 - **C4** `/_chaos` itself is never affected by chaos.
+- **C5** Every log line starts with the local wall-clock time to the millisecond
+  (`HH:MM:SS.mmm`), so retry gaps can be read straight from the log.
 
 ### Phone: outbox core (P), pure Kotlin, no Android imports
 

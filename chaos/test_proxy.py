@@ -1,8 +1,10 @@
 import http.client
+import io
 import json
 import threading
 import time
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from chaos.proxy import make_server
@@ -230,6 +232,15 @@ class TestC4ControlImmune(ChaosControlMixin, ProxyTestCase):
                 # Overwriting the pending mode is itself a /_chaos call; it must get through.
                 self.assertEqual(self.set_chaos({"mode": mode, "count": 1})[0], 200)
         self.assertEqual(self.upstream.count, 0)
+
+
+
+class TestC5LogTimestamps(ProxyTestCase):
+    def test_C5_each_log_line_starts_with_wall_clock_time_to_the_millisecond(self):
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.request("GET", "/messages")
+        line = err.getvalue().strip().splitlines()[-1]
+        self.assertRegex(line, r"^\d\d:\d\d:\d\d\.\d{3} GET /messages mode=pass$")
 
 
 if __name__ == "__main__":
