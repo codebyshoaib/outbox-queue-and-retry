@@ -39,6 +39,15 @@ class FakeStore : OutboxStore {
     override fun markFailed(messageId: String) =
         tx { m, o, crash -> m[messageId] = m.getValue(messageId).copy(status = Status.FAILED); crash(); o.remove(messageId) }
 
+    override fun requeue(messageId: String, now: Long): Boolean {
+        val msg = messages[messageId]?.takeIf { it.status == Status.FAILED } ?: return false
+        tx { m, o, crash ->
+            m[messageId] = msg.copy(status = Status.PENDING); crash()
+            o[messageId] = OutboxRow(messageId, msg.chatId, attempts = 0, nextAttemptAt = now, createdAt = now)
+        }
+        return true
+    }
+
     override fun outboxRows() = outbox.values.map { messages.getValue(it.messageId) to it }
 }
 

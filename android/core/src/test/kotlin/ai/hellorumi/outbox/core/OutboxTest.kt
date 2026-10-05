@@ -3,6 +3,7 @@ package ai.hellorumi.outbox.core
 import kotlin.test.Test
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -50,6 +51,50 @@ class OutboxTest {
         assertFailsWith<IllegalStateException> { outbox.send("chat-1", "hello") }
 
         assertTrue(store.messages.isEmpty(), "no orphan message without its outbox row")
+        assertTrue(store.outbox.isEmpty())
+    }
+
+    private fun failed(): Message {
+        val msg = outbox.send("chat-1", "hello")
+        OutboxProcessor(store, FakeTransport(SendResult.Http(400)), clock, "dev-1") { 0.5 }.drainOnce()
+        assertEquals(Status.FAILED, store.messages.getValue(msg.id).status)
+        return msg
+    }
+
+    @Test
+    fun P7_retryPutsAFailedMessageBackPendingAndDueNowUnderTheSameId() {
+        val msg = failed()
+        clock.now = 99_000L
+
+        assertTrue(outbox.retry(msg.id))
+
+        assertEquals(Status.PENDING, store.messages.getValue(msg.id).status)
+        assertEquals(OutboxRow(msg.id, "chat-1", attempts = 0, nextAttemptAt = 99_000L, createdAt = 99_000L), store.outbox.getValue(msg.id))
+        val transport = FakeTransport()
+        OutboxProcessor(store, transport, clock, "dev-1") { 0.5 }.drainOnce()
+        assertEquals(listOf(msg.id), transport.sentIds)
+        assertEquals(Status.SENT, store.messages.getValue(msg.id).status)
+    }
+
+    @Test
+    fun P7_retryOnlyAppliesToFailedMessages() {
+        val pending = outbox.send("chat-1", "pending")
+        val rowBefore = store.outbox.getValue(pending.id).copy(attempts = 3)
+        store.outbox[pending.id] = rowBefore
+
+        assertFalse(outbox.retry(pending.id))
+        assertFalse(outbox.retry("no-such-id"))
+        assertEquals(rowBefore, store.outbox.getValue(pending.id), "a pending row keeps its backoff state")
+    }
+
+    @Test
+    fun P7_failedRetryLeavesTheMessageFailed() {
+        val msg = failed()
+        store.failNextOp = true
+
+        assertFailsWith<IllegalStateException> { outbox.retry(msg.id) }
+
+        assertEquals(Status.FAILED, store.messages.getValue(msg.id).status)
         assertTrue(store.outbox.isEmpty())
     }
 }
