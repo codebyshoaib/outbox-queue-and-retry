@@ -1,0 +1,203 @@
+import uuid
+from unittest import mock
+
+from django.apps import apps
+from django.db import IntegrityError
+from rest_framework.test import APITestCase
+
+DEVICE = "phone-a"
+
+
+def stored():
+    # Looked up lazily so a missing model shows up as a failing assertion, not an import error.
+    return apps.get_model("chat", "Message").objects
+
+
+class MessagesTestCase(APITestCase):
+    def post(self, chat_id="chat-1", body="hello", client_msg_id=None, device=DEVICE):
+        payload = {
+            "client_msg_id": str(uuid.uuid4() if client_msg_id is None else client_msg_id),
+            "chat_id": chat_id,
+            "body": body,
+        }
+        headers = {} if device is None else {"HTTP_X_DEVICE_ID": device}
+        return self.client.post("/messages", payload, format="json", **headers)
+
+
+class S1CreateTests(MessagesTestCase):
+    def test_S1_new_message_returns_201_with_seq_and_is_stored(self):
+        msg_id = uuid.uuid4()
+
+        resp = self.post(chat_id="chat-1", body="hello", client_msg_id=msg_id)
+
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json(), {"client_msg_id": str(msg_id), "server_seq": 1})
+        row = stored().get()
+        self.assertEqual(
+            (row.chat.chat_id, row.sender_device_id, row.client_msg_id, row.body, row.server_seq),
+            ("chat-1", DEVICE, msg_id, "hello", 1),
+        )
+
+
+class S2IdempotencyTests(MessagesTestCase):
+    def test_S2_duplicate_returns_same_seq(self):
+        msg_id = uuid.uuid4()
+        first = self.post(client_msg_id=msg_id)
+
+        again = self.post(client_msg_id=msg_id)
+
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(again.json(), {"client_msg_id": str(msg_id), "server_seq": first.json()["server_seq"]})
+        self.assertEqual(stored().count(), 1)
+
+    def test_S2_same_client_msg_id_from_another_device_is_a_new_message(self):
+        msg_id = uuid.uuid4()
+        self.post(client_msg_id=msg_id, device="phone-a")
+
+        other = self.post(client_msg_id=msg_id, device="phone-b")
+
+        self.assertEqual(other.status_code, 201)
+        self.assertEqual(other.json()["server_seq"], 2)
+        self.assertEqual(stored().count(), 2)
+
+    def test_S2_duplicate_that_loses_the_insert_race_returns_same_seq(self):
+        # Deterministic stand-in for two concurrent requests with the same id: the second request's
+        # existence check misses (the first had not committed yet), so it goes on to insert and hits
+        # the unique constraint. It must answer 200 with the winner's seq, not 500 and not a new row.
+        msg_id = uuid.uuid4()
+        winner = self.post(client_msg_id=msg_id)
+
+        calls = []
+
+        def lookup_that_misses_once(device_id, client_msg_id):
+            calls.append(client_msg_id)
+            if len(calls) == 1:
+                return None
+            return stored().filter(sender_device_id=device_id, client_msg_id=client_msg_id).first()
+
+        with mock.patch("chat.views.find_existing", side_effect=lookup_that_misses_once, create=True):
+            loser = self.post(client_msg_id=msg_id)
+
+        self.assertEqual(loser.status_code, 200)
+        self.assertEqual(loser.json(), {"client_msg_id": str(msg_id), "server_seq": winner.json()["server_seq"]})
+        self.assertEqual(stored().count(), 1)
+        self.assertEqual(len(calls), 2, "expected a missed lookup, then a re-read after the IntegrityError")
+
+
+class S3SequenceTests(MessagesTestCase):
+    def seqs(self, chat_id):
+        return list(stored().filter(chat__chat_id=chat_id).order_by("server_seq").values_list("body", "server_seq"))
+
+    def test_S3_seq_is_per_chat_and_starts_at_1(self):
+        self.post(chat_id="chat-a", body="a1")
+        self.post(chat_id="chat-b", body="b1")
+        self.post(chat_id="chat-a", body="a2")
+
+        self.assertEqual(self.seqs("chat-a"), [("a1", 1), ("a2", 2)])
+        self.assertEqual(self.seqs("chat-b"), [("b1", 1)])
+
+    def test_S3_seq_follows_arrival_order(self):
+        replies = [self.post(body=f"m{i}").json()["server_seq"] for i in range(1, 6)]
+
+        self.assertEqual(replies, [1, 2, 3, 4, 5])
+        self.assertEqual(self.seqs("chat-1"), [(f"m{i}", i) for i in range(1, 6)])
+
+    def test_S3_no_gap_after_duplicates_and_a_lost_race(self):
+        msg_id = uuid.uuid4()
+        self.post(client_msg_id=msg_id, body="first")
+        self.post(client_msg_id=msg_id, body="first")
+        with mock.patch("chat.views.find_existing", side_effect=[None, stored().get()]):
+            self.post(client_msg_id=msg_id, body="first")
+
+        nxt = self.post(body="second")
+
+        self.assertEqual(nxt.json()["server_seq"], 2)
+        self.assertEqual(self.seqs("chat-1"), [("first", 1), ("second", 2)])
+
+    def test_S3_db_refuses_two_messages_with_the_same_seq_in_a_chat(self):
+        # Backstop for concurrency on a real database: if seq allocation ever races, the DB must
+        # reject the duplicate seq rather than silently store it.
+        chat = apps.get_model("chat", "Chat").objects.create(chat_id="chat-1", last_seq=1)
+        stored().create(chat=chat, sender_device_id="a", client_msg_id=uuid.uuid4(), body="x", server_seq=1)
+
+        with self.assertRaises(IntegrityError):
+            stored().create(chat=chat, sender_device_id="b", client_msg_id=uuid.uuid4(), body="y", server_seq=1)
+
+
+class S4ValidationTests(MessagesTestCase):
+    def assert_rejected(self, resp):
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(stored().count(), 0)
+        self.assertEqual(apps.get_model("chat", "Chat").objects.count(), 0)
+
+    def test_S4_missing_or_blank_device_id_is_rejected(self):
+        for device in (None, "", "   "):
+            with self.subTest(device=device):
+                self.assert_rejected(self.post(device=device))
+
+    def test_S4_non_uuid_client_msg_id_is_rejected(self):
+        for bad in ("not-a-uuid", "", "1234"):
+            with self.subTest(client_msg_id=bad):
+                self.assert_rejected(self.post(client_msg_id=bad))
+
+    def test_S4_blank_chat_id_is_rejected(self):
+        for bad in ("", "   "):
+            with self.subTest(chat_id=bad):
+                self.assert_rejected(self.post(chat_id=bad))
+
+    def test_S4_blank_body_is_rejected(self):
+        for bad in ("", "   ", "\n\t"):
+            with self.subTest(body=bad):
+                self.assert_rejected(self.post(body=bad))
+
+    def test_S4_body_over_4096_chars_is_rejected(self):
+        self.assert_rejected(self.post(body="x" * 4097))
+
+    def test_S4_missing_fields_and_non_object_json_are_rejected(self):
+        for payload in ({}, {"chat_id": "c", "body": "b"}, ["not", "an", "object"]):
+            with self.subTest(payload=payload):
+                resp = self.client.post("/messages", payload, format="json", HTTP_X_DEVICE_ID=DEVICE)
+                self.assert_rejected(resp)
+
+    def test_S4_ids_longer_than_the_column_are_rejected(self):
+        # Postgres would raise on a too-long varchar (a 500); reject it up front instead.
+        self.assert_rejected(self.post(chat_id="c" * 256))
+        self.assert_rejected(self.post(device="d" * 256))
+
+    def test_S4_body_of_exactly_4096_chars_is_accepted_and_stored_verbatim(self):
+        body = "  " + "x" * 4092 + "  "
+
+        resp = self.post(body=body)
+
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(stored().get().body, body)
+
+
+class S6ListTests(MessagesTestCase):
+    def test_S6_lists_only_that_chat_in_server_seq_order(self):
+        chat = apps.get_model("chat", "Chat").objects.create(chat_id="chat-1", last_seq=2)
+        other = apps.get_model("chat", "Chat").objects.create(chat_id="chat-2", last_seq=1)
+        # Inserted out of seq order so the test fails if the list is ordered by insertion/pk.
+        second = stored().create(chat=chat, sender_device_id="b", client_msg_id=uuid.uuid4(), body="two", server_seq=2)
+        first = stored().create(chat=chat, sender_device_id="a", client_msg_id=uuid.uuid4(), body="one", server_seq=1)
+        stored().create(chat=other, sender_device_id="a", client_msg_id=uuid.uuid4(), body="elsewhere", server_seq=1)
+
+        resp = self.client.get("/messages", {"chat_id": "chat-1"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            [{k: m[k] for k in ("server_seq", "client_msg_id", "sender_device_id", "body")} for m in resp.json()],
+            [
+                {"server_seq": 1, "client_msg_id": str(first.client_msg_id), "sender_device_id": "a", "body": "one"},
+                {"server_seq": 2, "client_msg_id": str(second.client_msg_id), "sender_device_id": "b", "body": "two"},
+            ],
+        )
+
+    def test_S6_unknown_chat_lists_nothing(self):
+        resp = self.client.get("/messages", {"chat_id": "nobody"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), [])
+
+    def test_S6_missing_chat_id_is_rejected(self):
+        self.assertEqual(self.client.get("/messages").status_code, 400)
