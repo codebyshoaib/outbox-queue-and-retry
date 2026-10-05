@@ -8,6 +8,7 @@ import json
 import sys
 import threading
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
@@ -68,7 +69,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
         pass  # replaced by one line per request in _handle
 
     def _log(self, mode):
-        sys.stderr.write("%s %s mode=%s\n" % (self.command, self.path, mode or "pass"))
+        stamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # C5: read retry gaps off the log
+        sys.stderr.write("%s %s %s mode=%s\n" % (stamp, self.command, self.path, mode or "pass"))
 
     def _json(self, status, obj):
         self._reply(status, [("Content-Type", "application/json")], json.dumps(obj).encode())
