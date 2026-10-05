@@ -3,11 +3,14 @@ package ai.hellorumi.outbox
 import ai.hellorumi.outbox.core.Clock
 import ai.hellorumi.outbox.core.Outbox
 import android.content.Context
-import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
@@ -16,14 +19,16 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
-import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+@OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
 class ChatScreenTest {
+    // Clicks go through the semantics action, not injected touches: once the keyboard is up, a
+    // touch on the IME's window is refused ("Failed to inject touch input").
     @get:Rule val compose = createComposeRule()
 
     private val context: Context = ApplicationProvider.getApplicationContext()
@@ -40,30 +45,31 @@ class ChatScreenTest {
         compose.setContent { ChatScreen(store, outbox, settings, kick = { kicks++ }) }
     }
 
-    @After fun tearDown() = db.close()
+    // No db.close(): the screen's Flow outlives @After (the compose rule disposes later), and closing
+    // under it throws "connection pool has been closed". An in-memory db just goes away.
 
     @Test fun A5_sendShowsAPendingRowAndKicksTheWorker() {
         compose.onNodeWithText("Message").performTextInput("hello")
-        compose.onNodeWithText("Send").performClick()
+        compose.onNodeWithText("Send").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitUntil(5_000) { kicks == 1 }
-        compose.onNodeWithText("hello").assertIsDisplayed()
-        compose.onNodeWithContentDescription("pending").assertIsDisplayed()
+        compose.waitUntilExactlyOneExists(hasText("hello"), 5_000)
+        compose.waitUntilExactlyOneExists(hasContentDescription("pending"), 5_000)
         assertEquals("playground", store.outboxRows().single().first.chatId)
     }
 
     @Test fun A5_sentRowShowsItsServerSeq() {
         val m = outbox.send("playground", "hi")
         store.markSent(m.id, 4)
-        compose.onNodeWithContentDescription("sent").assertIsDisplayed()
-        compose.onNodeWithText("#4").assertIsDisplayed()
+        compose.waitUntilExactlyOneExists(hasContentDescription("sent"), 5_000)
+        compose.waitUntilExactlyOneExists(hasText("#4"), 5_000)
     }
 
     @Test fun A5_tappingAFailedRowRetriesIt() {
         val m = outbox.send("playground", "oops")
         store.markFailed(m.id)
-        compose.onNodeWithContentDescription("failed, tap to retry").performClick()
+        compose.onNodeWithContentDescription("failed, tap to retry").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitUntil(5_000) { kicks == 1 }
-        compose.onNodeWithContentDescription("pending").assertIsDisplayed()
+        compose.waitUntilExactlyOneExists(hasContentDescription("pending"), 5_000)
         assertEquals(m.id, store.outboxRows().single().first.id)
     }
 
