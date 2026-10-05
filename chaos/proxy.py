@@ -83,9 +83,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return self._json(200, self.server.chaos.state())
         self._json(405, {"error": "use GET or POST"})
 
-    def _forward(self):
+    def _read_body(self):
         length = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(length) if length else None
+        return self.rfile.read(length) if length else None
+
+    def _forward(self, body):
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP}
         up = urlsplit(self.server.upstream)
         conn = http.client.HTTPConnection(up.hostname, up.port or 80, timeout=30)
@@ -112,7 +114,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return self._control()
         mode = self.server.chaos.take()
         self._log(mode)
-        self._reply(*self._forward())
+        # Read the body even when dropping, so close() sends a clean FIN, not a RST.
+        body = self._read_body()
+        if mode == "drop_request":
+            self.close_connection = True
+            return  # nothing written: the client sees the connection close
+        self._reply(*self._forward(body))
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = _handle
 
