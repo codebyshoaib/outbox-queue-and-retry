@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from .models import Message
+
 
 class MessageIn(serializers.Serializer):
     client_msg_id = serializers.UUIDField()
@@ -18,3 +20,11 @@ class MessageIn(serializers.Serializer):
             raise serializers.ValidationError({"X-Device-Id": "Required header, 1 to 255 characters."})
         attrs["sender_device_id"] = device_id
         return attrs
+
+
+class MessageOut(serializers.ModelSerializer):
+    chat_id = serializers.CharField(source="chat.chat_id")
+
+    class Meta:
+        model = Message
+        fields = ["server_seq", "client_msg_id", "chat_id", "sender_device_id", "body", "created_at"]

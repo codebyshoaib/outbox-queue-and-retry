@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Chat, Message
-from .serializers import MessageIn
+from .serializers import MessageIn, MessageOut
 
 
 def find_existing(device_id, client_msg_id):
@@ -11,6 +11,13 @@ def find_existing(device_id, client_msg_id):
 
 
 class MessagesView(APIView):
+    def get(self, request):
+        chat_id = request.query_params.get("chat_id", "").strip()
+        if not chat_id:
+            return Response({"chat_id": ["This query parameter is required."]}, status=400)
+        messages = Message.objects.filter(chat__chat_id=chat_id).select_related("chat").order_by("server_seq")
+        return Response(MessageOut(messages, many=True).data)
+
     def post(self, request):
         incoming = MessageIn(data=request.data, context={"device_id": request.headers.get("X-Device-Id")})
         incoming.is_valid(raise_exception=True)
