@@ -187,6 +187,16 @@ class TestC3Modes(ChaosControlMixin, ProxyTestCase):
         # Two copies upstream: deduping by client_msg_id is the server's job (S2).
         self.assertEqual([r["body"] for r in self.upstream.requests], [MSG, MSG])
 
+    def test_C3_status_replies_code_with_json_body_without_forwarding(self):
+        for code in (503, 400):
+            with self.subTest(code=code):
+                self.set_chaos({"mode": "status:%d" % code, "count": 1})
+                status, headers, body = self.request("POST", "/messages", body=MSG)
+                self.assertEqual(status, code)
+                self.assertEqual(headers["Content-Type"], "application/json")
+                self.assertEqual(json.loads(body)["chaos"], "status:%d" % code)
+        self.assertEqual(self.upstream.count, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
