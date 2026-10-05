@@ -13,3 +13,9 @@ class Message(models.Model):
     body = models.TextField()
     server_seq = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            # The idempotency key: a retry of the same send can never become a second row.
+            models.UniqueConstraint(fields=["sender_device_id", "client_msg_id"], name="uniq_device_client_msg"),
+        ]
