@@ -119,7 +119,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if mode == "drop_request":
             self.close_connection = True
             return  # nothing written: the client sees the connection close
-        self._reply(*self._forward(body))
+        reply = self._forward(body)  # full upstream response read: the server has committed
+        if mode == "drop_reply":
+            self.close_connection = True
+            return  # the lost ack
+        self._reply(*reply)
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = _handle
 
