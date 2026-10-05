@@ -7,7 +7,10 @@ class OutboxProcessor(
     private val deviceId: String,
 ) {
     fun drainOnce(): Long? {
-        for ((message, _) in store.outboxRows()) transport.send(deviceId, message)
+        for ((message, _) in store.outboxRows()) {
+            val result = transport.send(deviceId, message)
+            if (result is SendResult.Ok) store.markSent(message.id, result.serverSeq)
+        }
         return null
     }
 }

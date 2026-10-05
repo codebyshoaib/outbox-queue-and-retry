@@ -7,4 +7,7 @@ interface OutboxStore {
 
     /** Every outbox row with its message, oldest first. */
     fun outboxRows(): List<Pair<Message, OutboxRow>>
+
+    /** Message -> SENT with [serverSeq], outbox row deleted. */
+    fun markSent(messageId: String, serverSeq: Long)
 }
