@@ -159,8 +159,9 @@ class TestC2ChaosControl(ChaosControlMixin, ProxyTestCase):
                 status, body = self.set_chaos(bad)
                 self.assertEqual(status, 400)
                 self.assertIn("error", body)
-        status, _, _ = self.request("POST", "/_chaos", body=b"not json")
-        self.assertEqual(status, 400)
+        for raw in (b"not json", None):
+            status, _, _ = self.request("POST", "/_chaos", body=raw)
+            self.assertEqual(status, 400)
         self.assertEqual(self.get_chaos(), {"mode": "delay:0", "count": 1})
         self.assertEqual(self.upstream.count, 0)
 

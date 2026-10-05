@@ -75,9 +75,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def _control(self):
         if self.command == "POST":
-            length = int(self.headers.get("Content-Length") or 0)
             try:
-                return self._json(200, self.server.chaos.set(json.loads(self.rfile.read(length))))
+                payload = json.loads(self._read_body() or b"")
+                return self._json(200, self.server.chaos.set(payload))
             except ValueError as e:  # JSONDecodeError is a ValueError
                 return self._json(400, {"error": str(e)})
         if self.command == "GET":
