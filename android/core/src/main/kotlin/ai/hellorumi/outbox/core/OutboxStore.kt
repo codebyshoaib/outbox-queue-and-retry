@@ -4,4 +4,7 @@ package ai.hellorumi.outbox.core
 interface OutboxStore {
     /** Insert the message and its outbox row together. */
     fun enqueue(message: Message, row: OutboxRow)
+
+    /** Every outbox row with its message, oldest first. */
+    fun outboxRows(): List<Pair<Message, OutboxRow>>
 }
