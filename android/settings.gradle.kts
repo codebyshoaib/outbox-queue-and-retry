@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "outbox"
-include(":core")
+include(":core", ":app")
