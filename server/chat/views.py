@@ -41,4 +41,6 @@ class MessagesView(APIView):
                 msg = find_existing(device_id, data["client_msg_id"])
                 if msg is None:  # some other constraint (e.g. uniq_chat_seq) fired: a real error
                     raise
+        # S5: built only after the atomic block has committed, so an ack always means "stored".
+        # Never wrap this view in a transaction (ATOMIC_REQUESTS / @atomic): the ack would precede the commit.
         return Response({"client_msg_id": str(msg.client_msg_id), "server_seq": msg.server_seq}, status=status)
