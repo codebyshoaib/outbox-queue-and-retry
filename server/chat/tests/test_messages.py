@@ -1,4 +1,5 @@
 import uuid
+from unittest import mock
 
 from django.apps import apps
 from rest_framework.test import APITestCase
@@ -35,3 +36,48 @@ class S1CreateTests(MessagesTestCase):
             (row.chat.chat_id, row.sender_device_id, row.client_msg_id, row.body, row.server_seq),
             ("chat-1", DEVICE, msg_id, "hello", 1),
         )
+
+
+class S2IdempotencyTests(MessagesTestCase):
+    def test_S2_duplicate_returns_same_seq(self):
+        msg_id = uuid.uuid4()
+        first = self.post(client_msg_id=msg_id)
+
+        again = self.post(client_msg_id=msg_id)
+
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(again.json(), {"client_msg_id": str(msg_id), "server_seq": first.json()["server_seq"]})
+        self.assertEqual(stored().count(), 1)
+
+    def test_S2_same_client_msg_id_from_another_device_is_a_new_message(self):
+        msg_id = uuid.uuid4()
+        self.post(client_msg_id=msg_id, device="phone-a")
+
+        other = self.post(client_msg_id=msg_id, device="phone-b")
+
+        self.assertEqual(other.status_code, 201)
+        self.assertEqual(other.json()["server_seq"], 2)
+        self.assertEqual(stored().count(), 2)
+
+    def test_S2_duplicate_that_loses_the_insert_race_returns_same_seq(self):
+        # Deterministic stand-in for two concurrent requests with the same id: the second request's
+        # existence check misses (the first had not committed yet), so it goes on to insert and hits
+        # the unique constraint. It must answer 200 with the winner's seq, not 500 and not a new row.
+        msg_id = uuid.uuid4()
+        winner = self.post(client_msg_id=msg_id)
+
+        calls = []
+
+        def lookup_that_misses_once(device_id, client_msg_id):
+            calls.append(client_msg_id)
+            if len(calls) == 1:
+                return None
+            return stored().filter(sender_device_id=device_id, client_msg_id=client_msg_id).first()
+
+        with mock.patch("chat.views.find_existing", side_effect=lookup_that_misses_once, create=True):
+            loser = self.post(client_msg_id=msg_id)
+
+        self.assertEqual(loser.status_code, 200)
+        self.assertEqual(loser.json(), {"client_msg_id": str(msg_id), "server_seq": winner.json()["server_seq"]})
+        self.assertEqual(stored().count(), 1)
+        self.assertEqual(len(calls), 2, "expected a missed lookup, then a re-read after the IntegrityError")
