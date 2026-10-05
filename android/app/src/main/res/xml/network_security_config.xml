@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Playground only: the phone talks plain HTTP to a laptop on the LAN (chaos proxy :8091, Django :8080),
+  and Android 9+ blocks cleartext by default. Production uses HTTPS and deletes this file.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
