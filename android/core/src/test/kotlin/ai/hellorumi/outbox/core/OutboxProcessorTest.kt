@@ -161,4 +161,56 @@ class OutboxProcessorTest {
         assertEquals(Status.FAILED, store.messages.getValue(bad.id).status)
         assertEquals(Status.SENT, store.messages.getValue(good.id).status)
     }
+
+    @Test
+    fun P2_laterMessageWaitsWhileTheEarlierOneBacksOff() {
+        val first = outbox.send("chat-1", "first")
+        val second = outbox.send("chat-1", "second")
+        val transport = FakeTransport(SendResult.Http(503))
+        val p = processor(transport)
+
+        val wake = p.drainOnce()!!
+        assertEquals(listOf(first.id), transport.sentIds, "second must not overtake first")
+
+        clock.now = wake
+        p.drainOnce()
+        assertEquals(listOf(first.id, first.id, second.id), transport.sentIds)
+        assertEquals(1L, store.messages.getValue(first.id).serverSeq)
+        assertEquals(2L, store.messages.getValue(second.id).serverSeq)
+    }
+
+    @Test
+    fun P2_aBlockedChatDoesNotBlockOtherChats() {
+        outbox.send("chat-a", "stuck")
+        val other = outbox.send("chat-b", "flows")
+
+        processor(FakeTransport(SendResult.NetworkError(IOException("timeout")))).drainOnce()
+
+        assertEquals(Status.SENT, store.messages.getValue(other.id).status)
+    }
+
+    @Test
+    fun P2_sendsDueRowsOldestFirst() {
+        val a1 = outbox.send("chat-a", "a1")
+        clock.now += 1
+        val b1 = outbox.send("chat-b", "b1")
+        clock.now += 1
+        val a2 = outbox.send("chat-a", "a2")
+        val transport = FakeTransport()
+
+        processor(transport).drainOnce()
+
+        assertEquals(listOf(a1.id, b1.id, a2.id), transport.sentIds)
+    }
+
+    @Test
+    fun P2_wakeUpTimeIsTheEarliestChatHeadNotARowQueuedBehindIt() {
+        outbox.send("chat-1", "first")
+        outbox.send("chat-1", "second") // due now, but cannot go until "first" is acked
+        val start = clock.now
+
+        val wake = processor(FakeTransport(SendResult.Http(503))).drainOnce()
+
+        assertEquals(start + 750, wake, "waking at the blocked row's time would busy-loop")
+    }
 }
