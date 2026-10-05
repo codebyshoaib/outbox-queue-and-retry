@@ -157,5 +157,18 @@ class TestC2ChaosControl(ChaosControlMixin, ProxyTestCase):
         self.assertEqual(self.upstream.count, 0)
 
 
+MSG = json.dumps({"client_msg_id": "abc", "chat_id": "c1", "body": "hi"}).encode()
+
+
+class TestC3Modes(ChaosControlMixin, ProxyTestCase):
+    def test_C3_drop_request_closes_connection_without_forwarding(self):
+        self.set_chaos({"mode": "drop_request", "count": 1})
+        with self.assertRaises(ConnectionError):  # RemoteDisconnected is a ConnectionResetError
+            self.request("POST", "/messages", body=MSG)
+        self.assertEqual(self.upstream.count, 0)
+        self.assertEqual(self.request("POST", "/messages", body=MSG)[0], 201)
+        self.assertEqual(self.upstream.count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
