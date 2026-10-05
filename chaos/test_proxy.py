@@ -209,5 +209,21 @@ class TestC3Modes(ChaosControlMixin, ProxyTestCase):
         self.assertGreaterEqual(self.upstream.requests[0]["at"] - sent, 0.3)
 
 
+class TestC4ControlImmune(ChaosControlMixin, ProxyTestCase):
+    def test_C4_chaos_endpoint_is_never_dropped_delayed_or_counted(self):
+        for mode in ("drop_request", "drop_reply", "status:503", "delay:2000"):
+            with self.subTest(mode=mode):
+                self.assertEqual(self.set_chaos({"mode": mode, "count": 1})[0], 200)
+                started = time.monotonic()
+                for _ in range(3):
+                    self.assertEqual(self.get_chaos(), {"mode": mode, "count": 1})
+                    status, _, _ = self.request("GET", "/_chaos?verbose=1")
+                    self.assertEqual(status, 200)
+                self.assertLess(time.monotonic() - started, 1.0)  # delay:2000 not applied
+                # Overwriting the pending mode is itself a /_chaos call; it must get through.
+                self.assertEqual(self.set_chaos({"mode": mode, "count": 1})[0], 200)
+        self.assertEqual(self.upstream.count, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
