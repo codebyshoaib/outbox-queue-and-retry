@@ -8,6 +8,9 @@ interface OutboxStore {
     /** Every outbox row with its message, in the order rows were inserted (oldest first). */
     fun outboxRows(): List<Pair<Message, OutboxRow>>
 
+    /** P9: every row due later than [now] becomes due at [now]; attempts unchanged. */
+    fun makeAllDue(now: Long)
+
     /** Message -> SENT with [serverSeq], outbox row deleted. */
     fun markSent(messageId: String, serverSeq: Long)
 

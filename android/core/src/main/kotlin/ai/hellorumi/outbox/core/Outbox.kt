@@ -8,6 +8,9 @@ class Outbox(private val store: OutboxStore, private val clock: Clock) {
         val now = clock.now()
         val message = Message(UUID.randomUUID().toString(), chatId, body, now, Status.PENDING)
         store.enqueue(message, OutboxRow(message.id, chatId, attempts = 0, nextAttemptAt = now, createdAt = now))
+        // P9: a tap hints the network may be back. Separate transaction on purpose: if this fails the
+        // message is still saved and the old rows just wait out their back-off.
+        store.makeAllDue(now)
         return message
     }
 
