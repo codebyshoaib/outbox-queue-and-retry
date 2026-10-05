@@ -67,6 +67,8 @@ class ChatScreenTest {
     @Test fun A5_tappingAFailedRowRetriesIt() {
         val m = outbox.send("playground", "oops")
         store.markFailed(m.id)
+        // The screen learns about the DB change asynchronously (Room Flow); tap only once it shows.
+        compose.waitUntilExactlyOneExists(hasContentDescription("failed, tap to retry"), 5_000)
         compose.onNodeWithContentDescription("failed, tap to retry").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitUntil(5_000) { kicks == 1 }
         compose.waitUntilExactlyOneExists(hasContentDescription("pending"), 5_000)
