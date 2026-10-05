@@ -106,7 +106,7 @@ Each request prints one line to stderr: `POST /messages mode=drop_reply` (`pass`
 `control` for `/_chaos`).
 
 ```sh
-P=http://localhost:8081
+P=http://localhost:8091  # 8081 is taken on this laptop
 
 curl -s $P/_chaos                                                    # {"mode": null, "count": 0}
 curl -s -XPOST $P/_chaos -d '{"mode": "drop_reply", "count": 1}'     # T1: lose the next ack

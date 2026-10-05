@@ -9,3 +9,4 @@ what made it pass (green), and the lesson.
 | 1b Chaos proxy | [learning/01-chaos.md](learning/01-chaos.md) |
 | 1c Phone outbox core | [learning/01-core.md](learning/01-core.md) |
 | 2 Android app | [learning/02-android.md](learning/02-android.md) |
+| 3 A send never waits (P9, A6, C5) | [learning/03-send-never-waits.md](learning/03-send-never-waits.md) |
