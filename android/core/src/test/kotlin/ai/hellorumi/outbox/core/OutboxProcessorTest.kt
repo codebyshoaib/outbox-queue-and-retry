@@ -111,6 +111,8 @@ class OutboxProcessorTest {
         val results = listOf(500, 502, 503, 599, 408, 429).map { SendResult.Http(it) } +
             SendResult.NetworkError(IOException("no connection"))
         for (result in results) {
+            // each case alone: since P9 a send pulls the previous case's waiting row back in
+            store.messages.clear(); store.outbox.clear()
             val msg = outbox.send("chat-$result", "hello")
             processor(FakeTransport(result)).drainOnce()
             assertEquals(1, store.outbox.getValue(msg.id).attempts, "$result")
