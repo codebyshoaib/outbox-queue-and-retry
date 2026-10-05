@@ -169,6 +169,24 @@ class TestC3Modes(ChaosControlMixin, ProxyTestCase):
         self.assertEqual(self.request("POST", "/messages", body=MSG)[0], 201)
         self.assertEqual(self.upstream.count, 1)
 
+    def test_C3_drop_reply_reaches_upstream_but_client_gets_no_response(self):
+        self.set_chaos({"mode": "drop_reply", "count": 1})
+        # Not a status line, not an empty body: the socket closes with zero bytes written.
+        with self.assertRaises(http.client.RemoteDisconnected):
+            self.request("POST", "/messages", body=MSG, headers={"X-Device-Id": "dev-1"})
+        # The server did the work (and would have committed) before the client saw the drop.
+        self.assertEqual(self.upstream.count, 1)
+        self.assertEqual(self.upstream.requests[0]["body"], MSG)
+
+    def test_C3_drop_reply_retry_reaches_upstream_a_second_time(self):
+        self.set_chaos({"mode": "drop_reply", "count": 1})
+        with self.assertRaises(http.client.RemoteDisconnected):
+            self.request("POST", "/messages", body=MSG)
+        status, _, _ = self.request("POST", "/messages", body=MSG)
+        self.assertEqual(status, 201)
+        # Two copies upstream: deduping by client_msg_id is the server's job (S2).
+        self.assertEqual([r["body"] for r in self.upstream.requests], [MSG, MSG])
+
 
 if __name__ == "__main__":
     unittest.main()
