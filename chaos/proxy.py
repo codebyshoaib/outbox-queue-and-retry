@@ -114,13 +114,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return self._control()
         mode = self.server.chaos.take()
         self._log(mode)
+        kind, _, arg = (mode or "").partition(":")
         # Read the body even when dropping, so close() sends a clean FIN, not a RST.
         body = self._read_body()
-        if mode == "drop_request":
+        if kind == "drop_request":
             self.close_connection = True
             return  # nothing written: the client sees the connection close
+        if kind == "status":
+            return self._json(int(arg), {"chaos": mode})
         reply = self._forward(body)  # full upstream response read: the server has committed
-        if mode == "drop_reply":
+        if kind == "drop_reply":
             self.close_connection = True
             return  # the lost ack
         self._reply(*reply)
