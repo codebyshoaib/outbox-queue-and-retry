@@ -35,9 +35,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as OutboxApp
-        OutboxWork.enqueue(this) // A3: on app start, in case rows were left by a kill or reboot.
+        OutboxWork.kick(this) // A3: on app start, in case rows were left by a kill or reboot.
         setContent {
-            MaterialTheme { Surface { ChatScreen(app.store, app.outbox, app.settings) { OutboxWork.enqueue(this) } } }
+            MaterialTheme { Surface { ChatScreen(app.store, app.outbox, app.settings) { OutboxWork.kick(this) } } }
         }
     }
 }
