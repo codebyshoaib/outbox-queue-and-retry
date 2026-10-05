@@ -71,6 +71,9 @@ phone (android/)  --HTTP-->  chaos proxy :8091  --HTTP-->  Django :8080
 - **P7** `retry(messageId)` on a `failed` message puts it back as `pending` with `attempts = 0`,
   due now, same `client_msg_id`.
 - **P8** Time and randomness come from an injected clock and random source (testable).
+- **P9** After `send` saves the new message, every other outbox row (any chat) becomes due now;
+  its `attempts` is kept, so a further failure keeps backing off from where it was. A tap is the
+  best hint that the network may be back. Cost: one retry burst per tap while the server is down.
 
 ### Phone: Android (A)
 
@@ -80,6 +83,9 @@ phone (android/)  --HTTP-->  chaos proxy :8091  --HTTP-->  Django :8080
 - **A3** After a pass, if outbox rows remain, the next run is scheduled for the earliest
   `next_attempt_at`. The work is also enqueued on every `send` and on app start.
 - **A4** Survives app kill and phone reboot: pending rows are still sent afterwards.
+- **A6** A send while a run is waiting out a back-off delay starts a pass now (it does not queue
+  behind the delay). Two passes never run at once: a lock around the pass is the guarantee, not
+  the work queue (the app runs in one process; the worker stays blocking).
 - **A5** One screen: chat list of messages with status (🕓 pending, ✓ sent, ⚠ failed, tap to
   retry), a text box, a send button, and a settings field for the server URL.
 
