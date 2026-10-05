@@ -27,4 +27,20 @@ class FakeStore : OutboxStore {
         enqueueCalls++
         tx { m, o, crash -> m[message.id] = message; crash(); o[row.messageId] = row }
     }
+
+    override fun outboxRows() = outbox.values.map { messages.getValue(it.messageId) to it }
+}
+
+/** Replies from [script] in order, then Ok with a per-chat seq. Records every call. */
+class FakeTransport(vararg script: SendResult) : Transport {
+    private val script = ArrayDeque(script.toList())
+    private val seqs = mutableMapOf<String, Long>()
+    val calls = mutableListOf<Pair<String, Message>>()
+    val sentIds get() = calls.map { it.second.id }
+
+    override fun send(deviceId: String, message: Message): SendResult {
+        calls += deviceId to message
+        return script.removeFirstOrNull()
+            ?: SendResult.Ok(201, seqs.merge(message.chatId, 1L, Long::plus)!!)
+    }
 }
