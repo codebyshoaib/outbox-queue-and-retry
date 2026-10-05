@@ -10,4 +10,7 @@ interface OutboxStore {
 
     /** Message -> SENT with [serverSeq], outbox row deleted. */
     fun markSent(messageId: String, serverSeq: Long)
+
+    /** Row gets [attempts] and [nextAttemptAt]; the message stays PENDING. */
+    fun reschedule(messageId: String, attempts: Int, nextAttemptAt: Long)
 }
