@@ -26,6 +26,8 @@ object OutboxWork {
      * even for another chat, and each send adds one cheap pass to the chain. Fix if that latency
      * matters: cancel only an ENQUEUED (not RUNNING) delayed run before appending.
      */
+    fun kick(context: Context) = enqueue(context)
+
     fun enqueue(context: Context, delayMs: Long = 0) {
         val request = OneTimeWorkRequestBuilder<OutboxWorker>()
             .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
