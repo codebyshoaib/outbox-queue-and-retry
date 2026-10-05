@@ -2,6 +2,7 @@ import uuid
 from unittest import mock
 
 from django.apps import apps
+from django.db import IntegrityError
 from rest_framework.test import APITestCase
 
 DEVICE = "phone-a"
@@ -81,3 +82,43 @@ class S2IdempotencyTests(MessagesTestCase):
         self.assertEqual(loser.json(), {"client_msg_id": str(msg_id), "server_seq": winner.json()["server_seq"]})
         self.assertEqual(stored().count(), 1)
         self.assertEqual(len(calls), 2, "expected a missed lookup, then a re-read after the IntegrityError")
+
+
+class S3SequenceTests(MessagesTestCase):
+    def seqs(self, chat_id):
+        return list(stored().filter(chat__chat_id=chat_id).order_by("server_seq").values_list("body", "server_seq"))
+
+    def test_S3_seq_is_per_chat_and_starts_at_1(self):
+        self.post(chat_id="chat-a", body="a1")
+        self.post(chat_id="chat-b", body="b1")
+        self.post(chat_id="chat-a", body="a2")
+
+        self.assertEqual(self.seqs("chat-a"), [("a1", 1), ("a2", 2)])
+        self.assertEqual(self.seqs("chat-b"), [("b1", 1)])
+
+    def test_S3_seq_follows_arrival_order(self):
+        replies = [self.post(body=f"m{i}").json()["server_seq"] for i in range(1, 6)]
+
+        self.assertEqual(replies, [1, 2, 3, 4, 5])
+        self.assertEqual(self.seqs("chat-1"), [(f"m{i}", i) for i in range(1, 6)])
+
+    def test_S3_no_gap_after_duplicates_and_a_lost_race(self):
+        msg_id = uuid.uuid4()
+        self.post(client_msg_id=msg_id, body="first")
+        self.post(client_msg_id=msg_id, body="first")
+        with mock.patch("chat.views.find_existing", side_effect=[None, stored().get()]):
+            self.post(client_msg_id=msg_id, body="first")
+
+        nxt = self.post(body="second")
+
+        self.assertEqual(nxt.json()["server_seq"], 2)
+        self.assertEqual(self.seqs("chat-1"), [("first", 1), ("second", 2)])
+
+    def test_S3_db_refuses_two_messages_with_the_same_seq_in_a_chat(self):
+        # Backstop for concurrency on a real database: if seq allocation ever races, the DB must
+        # reject the duplicate seq rather than silently store it.
+        chat = apps.get_model("chat", "Chat").objects.create(chat_id="chat-1", last_seq=1)
+        stored().create(chat=chat, sender_device_id="a", client_msg_id=uuid.uuid4(), body="x", server_seq=1)
+
+        with self.assertRaises(IntegrityError):
+            stored().create(chat=chat, sender_device_id="b", client_msg_id=uuid.uuid4(), body="y", server_seq=1)
