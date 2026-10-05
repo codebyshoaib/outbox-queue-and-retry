@@ -7,6 +7,7 @@ import http.client
 import json
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
@@ -122,6 +123,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return  # nothing written: the client sees the connection close
         if kind == "status":
             return self._json(int(arg), {"chaos": mode})
+        if kind == "delay":
+            time.sleep(int(arg) / 1000)
         reply = self._forward(body)  # full upstream response read: the server has committed
         if kind == "drop_reply":
             self.close_connection = True
