@@ -10,4 +10,7 @@ class Outbox(private val store: OutboxStore, private val clock: Clock) {
         store.enqueue(message, OutboxRow(message.id, chatId, attempts = 0, nextAttemptAt = now, createdAt = now))
         return message
     }
+
+    /** P7: a FAILED message goes back in the outbox, due now, same client_msg_id. False if not failed. */
+    fun retry(messageId: String): Boolean = store.requeue(messageId, clock.now())
 }
