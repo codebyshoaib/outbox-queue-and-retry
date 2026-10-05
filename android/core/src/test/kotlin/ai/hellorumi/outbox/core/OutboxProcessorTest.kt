@@ -4,6 +4,7 @@ import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OutboxProcessorTest {
@@ -115,5 +116,49 @@ class OutboxProcessorTest {
             assertEquals(1, store.outbox.getValue(msg.id).attempts, "$result")
             assertEquals(Status.PENDING, store.messages.getValue(msg.id).status, "$result")
         }
+    }
+
+    @Test
+    fun P6_permanentFailureMarksFailedAndDropsRow() {
+        val msg = outbox.send("chat-1", "hello")
+
+        val next = processor(FakeTransport(SendResult.Http(400))).drainOnce()
+
+        assertEquals(Status.FAILED, store.messages.getValue(msg.id).status)
+        assertTrue(store.outbox.isEmpty())
+        assertNull(next, "nothing left to wake up for")
+    }
+
+    @Test
+    fun P6_failedMessageIsNeverRetriedByItself() {
+        outbox.send("chat-1", "hello")
+        val transport = FakeTransport(SendResult.Http(422))
+        val p = processor(transport)
+
+        p.drainOnce()
+        clock.now += 24 * 3_600_000L
+        p.drainOnce()
+
+        assertEquals(1, transport.calls.size)
+    }
+
+    @Test
+    fun P6_anyOtherNon2xxStatusIsPermanent() {
+        for (code in listOf(100, 301, 304, 400, 401, 403, 404, 409, 413, 418, 422, 451)) {
+            val msg = outbox.send("chat-$code", "hello")
+            processor(FakeTransport(SendResult.Http(code))).drainOnce()
+            assertEquals(Status.FAILED, store.messages.getValue(msg.id).status, "HTTP $code")
+        }
+    }
+
+    @Test
+    fun P6_permanentFailureDoesNotBlockTheNextMessageInTheChat() {
+        val bad = outbox.send("chat-1", "rejected")
+        val good = outbox.send("chat-1", "fine")
+
+        processor(FakeTransport(SendResult.Http(400))).drainOnce()
+
+        assertEquals(Status.FAILED, store.messages.getValue(bad.id).status)
+        assertEquals(Status.SENT, store.messages.getValue(good.id).status)
     }
 }
