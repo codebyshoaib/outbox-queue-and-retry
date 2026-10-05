@@ -19,7 +19,10 @@ class MessagesView(APIView):
             try:
                 # Savepoint: if the insert loses a race, the seq increment rolls back with it.
                 with transaction.atomic():
-                    chat, _ = Chat.objects.get_or_create(chat_id=data["chat_id"])
+                    Chat.objects.get_or_create(chat_id=data["chat_id"])
+                    # Row lock so concurrent sends to one chat take seqs one at a time. No-op on
+                    # SQLite (it serialises writers anyway); real on Postgres.
+                    chat = Chat.objects.select_for_update().get(chat_id=data["chat_id"])
                     chat.last_seq += 1
                     chat.save(update_fields=["last_seq"])
                     msg = Message.objects.create(
@@ -33,4 +36,6 @@ class MessagesView(APIView):
             except IntegrityError:
                 # A concurrent request with the same (device, client_msg_id) committed first.
                 msg = find_existing(device_id, data["client_msg_id"])
+                if msg is None:  # some other constraint (e.g. uniq_chat_seq) fired: a real error
+                    raise
         return Response({"client_msg_id": str(msg.client_msg_id), "server_seq": msg.server_seq}, status=status)

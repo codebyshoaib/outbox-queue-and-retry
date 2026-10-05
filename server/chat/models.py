@@ -18,4 +18,6 @@ class Message(models.Model):
         constraints = [
             # The idempotency key: a retry of the same send can never become a second row.
             models.UniqueConstraint(fields=["sender_device_id", "client_msg_id"], name="uniq_device_client_msg"),
+            # Backstop for seq allocation: two messages can never share a seq in one chat.
+            models.UniqueConstraint(fields=["chat", "server_seq"], name="uniq_chat_seq"),
         ]
