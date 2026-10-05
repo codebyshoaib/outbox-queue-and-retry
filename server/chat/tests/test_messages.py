@@ -122,3 +122,52 @@ class S3SequenceTests(MessagesTestCase):
 
         with self.assertRaises(IntegrityError):
             stored().create(chat=chat, sender_device_id="b", client_msg_id=uuid.uuid4(), body="y", server_seq=1)
+
+
+class S4ValidationTests(MessagesTestCase):
+    def assert_rejected(self, resp):
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(stored().count(), 0)
+        self.assertEqual(apps.get_model("chat", "Chat").objects.count(), 0)
+
+    def test_S4_missing_or_blank_device_id_is_rejected(self):
+        for device in (None, "", "   "):
+            with self.subTest(device=device):
+                self.assert_rejected(self.post(device=device))
+
+    def test_S4_non_uuid_client_msg_id_is_rejected(self):
+        for bad in ("not-a-uuid", "", "1234"):
+            with self.subTest(client_msg_id=bad):
+                self.assert_rejected(self.post(client_msg_id=bad))
+
+    def test_S4_blank_chat_id_is_rejected(self):
+        for bad in ("", "   "):
+            with self.subTest(chat_id=bad):
+                self.assert_rejected(self.post(chat_id=bad))
+
+    def test_S4_blank_body_is_rejected(self):
+        for bad in ("", "   ", "\n\t"):
+            with self.subTest(body=bad):
+                self.assert_rejected(self.post(body=bad))
+
+    def test_S4_body_over_4096_chars_is_rejected(self):
+        self.assert_rejected(self.post(body="x" * 4097))
+
+    def test_S4_missing_fields_and_non_object_json_are_rejected(self):
+        for payload in ({}, {"chat_id": "c", "body": "b"}, ["not", "an", "object"]):
+            with self.subTest(payload=payload):
+                resp = self.client.post("/messages", payload, format="json", HTTP_X_DEVICE_ID=DEVICE)
+                self.assert_rejected(resp)
+
+    def test_S4_ids_longer_than_the_column_are_rejected(self):
+        # Postgres would raise on a too-long varchar (a 500); reject it up front instead.
+        self.assert_rejected(self.post(chat_id="c" * 256))
+        self.assert_rejected(self.post(device="d" * 256))
+
+    def test_S4_body_of_exactly_4096_chars_is_accepted_and_stored_verbatim(self):
+        body = "  " + "x" * 4092 + "  "
+
+        resp = self.post(body=body)
+
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(stored().get().body, body)
