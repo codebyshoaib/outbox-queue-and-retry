@@ -24,6 +24,35 @@ class OutboxTest {
     }
 
     @Test
+    fun P9_sendMakesEveryWaitingRowDueNowAndKeepsItsAttempts() {
+        val stuck = outbox.send("chat-1", "one")
+        val other = outbox.send("chat-2", "two")
+        store.reschedule(stuck.id, attempts = 4, nextAttemptAt = 92_000L) // waiting out a long backoff
+        store.reschedule(other.id, attempts = 2, nextAttemptAt = 49_000L)
+        clock.now = 43_000L
+
+        outbox.send("chat-1", "hi")
+
+        assertEquals(OutboxRow(stuck.id, "chat-1", attempts = 4, nextAttemptAt = 43_000L, createdAt = 42_000L), store.outbox.getValue(stuck.id))
+        assertEquals(OutboxRow(other.id, "chat-2", attempts = 2, nextAttemptAt = 43_000L, createdAt = 42_000L), store.outbox.getValue(other.id))
+    }
+
+    @Test
+    fun P9_afterASendTheStuckChatDrainsInTypedOrder() {
+        val stuck = outbox.send("chat-1", "one")
+        store.reschedule(stuck.id, attempts = 6, nextAttemptAt = 102_000L)
+        val transport = FakeTransport()
+        val processor = OutboxProcessor(store, transport, clock, deviceId = "dev-1", random = { 1.0 })
+        clock.now = 43_000L
+
+        outbox.send("chat-1", "hi")
+        processor.drainOnce()
+
+        assertEquals(listOf("one", "hi"), transport.calls.map { it.second.body })
+        assertTrue(store.outbox.isEmpty())
+    }
+
+    @Test
     fun P1_sendWritesPendingMessageAndRowInOneTransaction() {
         val msg = outbox.send("chat-1", "hello")
 
