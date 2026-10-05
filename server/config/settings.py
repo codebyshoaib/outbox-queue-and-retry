@@ -22,6 +22,8 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        # File-backed test DB so a second connection can check what is committed (S5 test).
+        "TEST": {"NAME": BASE_DIR / "test_db.sqlite3"},
     }
 }
 
