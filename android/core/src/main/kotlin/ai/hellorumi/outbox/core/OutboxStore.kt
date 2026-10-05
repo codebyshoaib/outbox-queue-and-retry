@@ -13,4 +13,7 @@ interface OutboxStore {
 
     /** Row gets [attempts] and [nextAttemptAt]; the message stays PENDING. */
     fun reschedule(messageId: String, attempts: Int, nextAttemptAt: Long)
+
+    /** Message -> FAILED, outbox row deleted. */
+    fun markFailed(messageId: String)
 }

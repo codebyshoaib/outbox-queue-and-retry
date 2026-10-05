@@ -15,9 +15,11 @@ class OutboxProcessor(
             if (row.nextAttemptAt > clock.now()) continue
             when (val result = transport.send(deviceId, message)) {
                 is SendResult.Ok -> store.markSent(message.id, result.serverSeq)
-                else -> {
+                else -> if (result.isTransient()) {
                     val attempts = row.attempts + 1
                     store.reschedule(message.id, attempts, clock.now() + Backoff.delayMs(attempts, random()))
+                } else {
+                    store.markFailed(message.id)
                 }
             }
         }
