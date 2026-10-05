@@ -103,6 +103,12 @@ class TestC1PassThrough(ProxyTestCase):
         self.assertEqual(self.upstream.requests[0]["method"], "GET")
         self.assertEqual(self.upstream.requests[0]["body"], b"")
 
+    def test_C1_upstream_down_replies_502(self):
+        self.upstream.close()  # port now refuses connections
+        status, _, body = self.request("POST", "/messages", body=b"{}")
+        self.assertEqual(status, 502)
+        self.assertIn("error", json.loads(body))
+
 
 class ChaosControlMixin:
     def set_chaos(self, payload):
