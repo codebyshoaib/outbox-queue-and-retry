@@ -16,7 +16,7 @@ def stored():
 class MessagesTestCase(APITestCase):
     def post(self, chat_id="chat-1", body="hello", client_msg_id=None, device=DEVICE):
         payload = {
-            "client_msg_id": str(client_msg_id or uuid.uuid4()),
+            "client_msg_id": str(uuid.uuid4() if client_msg_id is None else client_msg_id),
             "chat_id": chat_id,
             "body": body,
         }
