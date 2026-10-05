@@ -33,6 +33,9 @@ class FakeStore : OutboxStore {
             m[messageId] = m.getValue(messageId).copy(status = Status.SENT, serverSeq = serverSeq); crash(); o.remove(messageId)
         }
 
+    override fun reschedule(messageId: String, attempts: Int, nextAttemptAt: Long) =
+        tx { _, o, _ -> o[messageId] = o.getValue(messageId).copy(attempts = attempts, nextAttemptAt = nextAttemptAt) }
+
     override fun outboxRows() = outbox.values.map { messages.getValue(it.messageId) to it }
 }
 
