@@ -28,6 +28,11 @@ class FakeStore : OutboxStore {
         tx { m, o, crash -> m[message.id] = message; crash(); o[row.messageId] = row }
     }
 
+    override fun markSent(messageId: String, serverSeq: Long) =
+        tx { m, o, crash ->
+            m[messageId] = m.getValue(messageId).copy(status = Status.SENT, serverSeq = serverSeq); crash(); o.remove(messageId)
+        }
+
     override fun outboxRows() = outbox.values.map { messages.getValue(it.messageId) to it }
 }
 
