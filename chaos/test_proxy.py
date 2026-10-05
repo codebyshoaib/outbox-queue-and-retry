@@ -37,7 +37,7 @@ class FakeUpstream:
                 pass
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(target=self.server.serve_forever, args=(0.01,), daemon=True).start()
 
     @property
     def url(self):
@@ -57,7 +57,7 @@ class ProxyTestCase(unittest.TestCase):
     def setUp(self):
         self.upstream = FakeUpstream()
         self.proxy = make_server(("127.0.0.1", 0), self.upstream.url)
-        threading.Thread(target=self.proxy.serve_forever, daemon=True).start()
+        threading.Thread(target=self.proxy.serve_forever, args=(0.01,), daemon=True).start()
         self.port = self.proxy.server_address[1]
 
     def tearDown(self):
