@@ -52,6 +52,19 @@ class RoomOutboxStoreTest {
         assertNull(message("a"), "the message insert must roll back with the failed row insert")
     }
 
+    @Test fun P9_makeAllDuePullsOnlyLaterRowsToNowAndKeepsAttempts() {
+        val (waiting, early) = msg("waiting") to msg("early", "other")
+        enqueue(waiting); enqueue(early)
+        store.reschedule("waiting", attempts = 4, nextAttemptAt = 90_000)
+        store.reschedule("early", attempts = 1, nextAttemptAt = 500) // already overdue: must not be pushed later
+
+        store.makeAllDue(2_000)
+
+        val rows = store.outboxRows().associate { it.first.id to it.second }
+        assertEquals(row(waiting).copy(attempts = 4, nextAttemptAt = 2_000), rows["waiting"])
+        assertEquals(row(early).copy(attempts = 1, nextAttemptAt = 500), rows["early"])
+    }
+
     @Test fun A1_outboxRowsKeepInsertionOrder() {
         // Ids and timestamps both sort the other way, so only the insertion key gives this order.
         val ms = listOf(msg("z", at = 3), msg("y", "other", at = 2), msg("x", at = 1))
