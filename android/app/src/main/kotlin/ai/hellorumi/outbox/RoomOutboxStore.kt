@@ -26,7 +26,8 @@ class RoomOutboxStore(private val db: AppDb) : OutboxStore {
     override fun reschedule(messageId: String, attempts: Int, nextAttemptAt: Long) =
         dao.reschedule(messageId, attempts, nextAttemptAt)
 
-    override fun makeAllDue(now: Long) {}
+    // One UPDATE, atomic on its own. The WHERE keeps already-overdue rows where they are.
+    override fun makeAllDue(now: Long) = dao.makeAllDue(now)
 
     override fun markFailed(messageId: String) = db.runInTransaction {
         dao.setStatusIf(messageId, Status.PENDING, Status.FAILED)

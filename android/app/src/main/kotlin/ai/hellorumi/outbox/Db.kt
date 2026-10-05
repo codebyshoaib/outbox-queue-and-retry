@@ -73,6 +73,9 @@ interface OutboxDao {
     @Query("UPDATE outbox SET attempts = :attempts, nextAttemptAt = :nextAttemptAt WHERE messageId = :id")
     fun reschedule(id: String, attempts: Int, nextAttemptAt: Long)
 
+    @Query("UPDATE outbox SET nextAttemptAt = :now WHERE nextAttemptAt > :now")
+    fun makeAllDue(now: Long)
+
     @Query("DELETE FROM outbox WHERE messageId = :id")
     fun deleteRow(id: String)
 }
