@@ -102,5 +102,60 @@ class TestC1PassThrough(ProxyTestCase):
         self.assertEqual(self.upstream.requests[0]["body"], b"")
 
 
+class ChaosControlMixin:
+    def set_chaos(self, payload):
+        status, _, body = self.request(
+            "POST", "/_chaos", body=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"})
+        return status, json.loads(body)
+
+    def get_chaos(self):
+        status, _, body = self.request("GET", "/_chaos")
+        self.assertEqual(status, 200)
+        return json.loads(body)
+
+
+class TestC2ChaosControl(ChaosControlMixin, ProxyTestCase):
+    def test_C2_default_state_is_pass_through(self):
+        self.assertEqual(self.get_chaos(), {"mode": None, "count": 0})
+
+    def test_C2_post_sets_mode_and_get_shows_it(self):
+        status, state = self.set_chaos({"mode": "delay:0", "count": 2})
+        self.assertEqual(status, 200)
+        self.assertEqual(state, {"mode": "delay:0", "count": 2})
+        self.assertEqual(self.get_chaos(), {"mode": "delay:0", "count": 2})
+
+    def test_C2_each_forwarded_request_consumes_one_then_back_to_pass_through(self):
+        self.set_chaos({"mode": "delay:0", "count": 2})
+        self.request("GET", "/messages")
+        self.assertEqual(self.get_chaos(), {"mode": "delay:0", "count": 1})
+        self.request("GET", "/messages")
+        self.assertEqual(self.get_chaos(), {"mode": None, "count": 0})
+        status, _, _ = self.request("GET", "/messages")
+        self.assertEqual(status, 201)
+        self.assertEqual(self.upstream.count, 3)
+
+    def test_C2_count_defaults_to_one_and_zero_clears(self):
+        self.assertEqual(self.set_chaos({"mode": "drop_reply"})[1],
+                         {"mode": "drop_reply", "count": 1})
+        self.assertEqual(self.set_chaos({"mode": "drop_reply", "count": 0})[1],
+                         {"mode": None, "count": 0})
+
+    def test_C2_invalid_input_replies_400_and_keeps_state(self):
+        self.set_chaos({"mode": "delay:0", "count": 1})
+        for bad in [{"mode": "explode"}, {"mode": "status:abc"}, {"mode": "status:99"},
+                    {"mode": "status:600"}, {"mode": "delay:-1"}, {"mode": "delay:x"},
+                    {"mode": "drop_reply", "count": -1}, {"mode": "drop_reply", "count": "2"},
+                    {"mode": "drop_reply", "count": True}, {"count": 1}, ["drop_reply"]]:
+            with self.subTest(bad=bad):
+                status, body = self.set_chaos(bad)
+                self.assertEqual(status, 400)
+                self.assertIn("error", body)
+        status, _, _ = self.request("POST", "/_chaos", body=b"not json")
+        self.assertEqual(status, 400)
+        self.assertEqual(self.get_chaos(), {"mode": "delay:0", "count": 1})
+        self.assertEqual(self.upstream.count, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
